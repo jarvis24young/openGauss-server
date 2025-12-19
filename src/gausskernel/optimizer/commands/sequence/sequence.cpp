@@ -2827,7 +2827,7 @@ Datum pg_sequence_all_parameters(PG_FUNCTION_ARGS)
             (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
                 errmsg("permission denied for sequence %s", RelationGetRelationName(seqrel))));
 
-    tupdesc = CreateTemplateTupleDesc(5, false);
+    tupdesc = CreateTemplateTupleDesc(9, false);
     TupleDescInitEntry(tupdesc, (AttrNumber)1, "start_value", INT16OID, -1, 0);
     TupleDescInitEntry(tupdesc, (AttrNumber)2, "minimum_value", INT16OID, -1, 0);
     TupleDescInitEntry(tupdesc, (AttrNumber)3, "maximum_value", INT16OID, -1, 0);
