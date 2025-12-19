@@ -2801,6 +2801,80 @@ Datum pg_sequence_parameters(PG_FUNCTION_ARGS)
     return HeapTupleGetDatum(heap_form_tuple(tupdesc, values, isnull));
 }
 
+/*
+ * Return sequence all paremeters
+ */
+Datum pg_sequence_all_parameters(PG_FUNCTION_ARGS)
+{
+    Oid relid = PG_GETARG_OID(0);
+    Relation rel = relation_open(relid, NoLock);
+    char relkind = RelationGetRelkind(rel);
+    bool large = relkind == 'L';
+    relation_close(rel, NoLock);
+    TupleDesc tupdesc;
+    Datum values[5];
+    bool isnull[5];
+    SeqTable elm = NULL;
+    Relation seqrel;
+    Buffer buf;
+    HeapTupleData seqtuple;
+
+    /* open and lock sequence */
+    init_sequence(relid, &elm, &seqrel);
+
+    if (pg_class_aclcheck(relid, GetUserId(), ACL_SELECT | ACL_UPDATE | ACL_USAGE) != ACLCHECK_OK)
+        ereport(ERROR,
+            (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+                errmsg("permission denied for sequence %s", RelationGetRelationName(seqrel))));
+
+    tupdesc = CreateTemplateTupleDesc(5, false);
+    TupleDescInitEntry(tupdesc, (AttrNumber)1, "start_value", INT16OID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)2, "minimum_value", INT16OID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)3, "maximum_value", INT16OID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)4, "increment", INT16OID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)5, "cycle_option", BOOLOID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)6, "cache_size", INT16OID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)7, "last_value", INT16OID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)8, "is_called", BOOLOID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)9, "log_cnt", INT8OID, -1, 0);
+
+    BlessTupleDesc(tupdesc);
+
+    errno_t rc = memset_s(isnull, sizeof(isnull), 0, sizeof(isnull));
+    securec_check(rc, "\0", "\0");
+
+    GTM_UUID uuid;
+    int i = 0;
+    if (large) {
+        Form_pg_large_sequence seq = read_seq_tuple<Form_pg_large_sequence>(elm, seqrel, &buf, &seqtuple, &uuid);
+        values[i++] = Int128GetDatum(seq->start_value);
+        values[i++] = Int128GetDatum(seq->min_value);
+        values[i++] = Int128GetDatum(seq->max_value);
+        values[i++] = Int128GetDatum(seq->increment_by);
+        values[i++] = BoolGetDatum(seq->is_cycled);
+        values[i++] = Int128GetDatum(seq->cache_value);
+        values[i++] = Int128GetDatum(seq->last_value);
+        values[i++] = BoolGetDatum(seq->is_called);
+        values[i++] = Int64GetDatum(seq->log_cnt);
+    } else {
+        Form_pg_sequence seq = read_seq_tuple<Form_pg_sequence>(elm, seqrel, &buf, &seqtuple, &uuid);
+        values[i++] = Int128GetDatum((int128)seq->start_value);
+        values[i++] = Int128GetDatum((int128)seq->min_value);
+        values[i++] = Int128GetDatum((int128)seq->max_value);
+        values[i++] = Int128GetDatum((int128)seq->increment_by);
+        values[i++] = BoolGetDatum(seq->is_cycled);
+        values[i++] = Int128GetDatum((int128)seq->cache_value);
+        values[i++] = Int128GetDatum((int128)seq->last_value);
+        values[i++] = BoolGetDatum(seq->is_called);
+        values[i++] = Int64GetDatum(seq->log_cnt);
+    }
+
+    UnlockReleaseBuffer(buf);
+    relation_close(seqrel, NoLock);
+
+    return HeapTupleGetDatum(heap_form_tuple(tupdesc, values, isnull));
+}
+
 Datum pg_sequence_last_value(PG_FUNCTION_ARGS)
 {
     Oid relid = PG_GETARG_OID(0);
