@@ -2812,8 +2812,8 @@ Datum pg_sequence_all_parameters(PG_FUNCTION_ARGS)
     bool large = relkind == 'L';
     relation_close(rel, NoLock);
     TupleDesc tupdesc;
-    Datum values[5];
-    bool isnull[5];
+    Datum values[9];
+    bool isnull[9];
     SeqTable elm = NULL;
     Relation seqrel;
     Buffer buf;
