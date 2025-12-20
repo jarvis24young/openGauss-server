@@ -2806,18 +2806,34 @@ Datum pg_sequence_parameters(PG_FUNCTION_ARGS)
  */
 Datum pg_sequence_all_parameters(PG_FUNCTION_ARGS)
 {
-    Oid relid = PG_GETARG_OID(0);
-    Relation rel = relation_open(relid, NoLock);
-    char relkind = RelationGetRelkind(rel);
-    bool large = relkind == 'L';
-    relation_close(rel, NoLock);
+
+    text *seq_name_text = PG_GETARG_TEXT_PP(0);
+    char *seq_name_str;
+    Oid relid;
+    List *name_list;
+    RangeVar *rel_var;
+    bool large = false;
     TupleDesc tupdesc;
-    Datum values[9];
-    bool isnull[9];
+    Datum values[12];
+    bool isnull[12];
     SeqTable elm = NULL;
     Relation seqrel;
     Buffer buf;
     HeapTupleData seqtuple;
+
+    seq_name_str = text_to_cstring(seq_name_text);
+    name_list = stringToQualifiedNameList(seq_name_str);
+    rel_var = makeRangeVarFromNameList(name_list);
+    relid = RangeVarGetRelid(rel_var, AccessShareLock, false);
+
+    if (!RELKIND_IS_SEQUENCE(get_rel_relkind(relid)))
+        ereport(ERROR,
+                (errcode(ERRCODE_WRONG_OBJECT_TYPE),
+                 errmsg("\"%s\" is not a sequence", seq_name_str)));
+
+    if (get_rel_relkind(relid) == RELKIND_LARGE_SEQUENCE) {
+        large = true
+    }
 
     /* open and lock sequence */
     init_sequence(relid, &elm, &seqrel);
@@ -2827,7 +2843,7 @@ Datum pg_sequence_all_parameters(PG_FUNCTION_ARGS)
             (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
                 errmsg("permission denied for sequence %s", RelationGetRelationName(seqrel))));
 
-    tupdesc = CreateTemplateTupleDesc(9, false);
+    tupdesc = CreateTemplateTupleDesc(12, false);
     TupleDescInitEntry(tupdesc, (AttrNumber)1, "start_value", INT16OID, -1, 0);
     TupleDescInitEntry(tupdesc, (AttrNumber)2, "minimum_value", INT16OID, -1, 0);
     TupleDescInitEntry(tupdesc, (AttrNumber)3, "maximum_value", INT16OID, -1, 0);
@@ -2837,6 +2853,9 @@ Datum pg_sequence_all_parameters(PG_FUNCTION_ARGS)
     TupleDescInitEntry(tupdesc, (AttrNumber)7, "last_value", INT16OID, -1, 0);
     TupleDescInitEntry(tupdesc, (AttrNumber)8, "is_called", BOOLOID, -1, 0);
     TupleDescInitEntry(tupdesc, (AttrNumber)9, "log_cnt", INT8OID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)10, "uuid", INT8OID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)11, "last_used_value", INT16OID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)12, "is_exhausted", BOOLOID, -1, 0);
 
     BlessTupleDesc(tupdesc);
 
@@ -2856,6 +2875,24 @@ Datum pg_sequence_all_parameters(PG_FUNCTION_ARGS)
         values[i++] = Int128GetDatum(seq->last_value);
         values[i++] = BoolGetDatum(seq->is_called);
         values[i++] = Int64GetDatum(seq->log_cnt);
+        values[i++] = Int64GetDatum(seq->uuid);
+        if (seq->is_called) {
+            values[i] = Int128GetDatum(seq->last_value);
+        } else {
+            values[i] = (Datum)0;
+            isnull[i] = true;
+        }
+        i++;
+        bool value_is_exhausted = false;
+        if ((seq->increment_by > 0 && FetchNOverMaxBound(seq->max_value, seq->last_value, seq->increment_by)) ||
+            (seq->increment_by < 0 && FetchNOverMinBound(seq->min_value, seq->last_value, seq->increment_by))) {
+            value_is_exhausted = true;
+        }
+        if (seq->is_called && seq->is_cycled && value_is_exhausted) {
+            values[i++] = BoolGetDatum(true);
+        } else {
+            values[i++] = BoolGetDatum(false);
+        }
     } else {
         Form_pg_sequence seq = read_seq_tuple<Form_pg_sequence>(elm, seqrel, &buf, &seqtuple, &uuid);
         values[i++] = Int128GetDatum((int128)seq->start_value);
@@ -2867,6 +2904,24 @@ Datum pg_sequence_all_parameters(PG_FUNCTION_ARGS)
         values[i++] = Int128GetDatum((int128)seq->last_value);
         values[i++] = BoolGetDatum(seq->is_called);
         values[i++] = Int64GetDatum(seq->log_cnt);
+        values[i++] = Int64GetDatum(seq->uuid);
+        if (seq->is_called) {
+            values[i] = Int128GetDatum((int128)seq->last_value);
+        } else {
+            values[i] = (Datum)0;
+            isnull[i] = true;
+        }
+        i++;
+        bool value_is_exhausted = false;
+        if ((seq->increment_by > 0 && FetchNOverMaxBound(seq->max_value, seq->last_value, seq->increment_by)) ||
+            (seq->increment_by < 0 && FetchNOverMinBound(seq->min_value, seq->last_value, seq->increment_by))) {
+            value_is_exhausted = true;
+        }
+        if (seq->is_called && seq->is_cycled && value_is_exhausted) {
+            values[i++] = BoolGetDatum(true);
+        } else {
+            values[i++] = BoolGetDatum(false);
+        }
     }
 
     UnlockReleaseBuffer(buf);
