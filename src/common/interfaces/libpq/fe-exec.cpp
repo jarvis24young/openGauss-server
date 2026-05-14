@@ -4583,3 +4583,72 @@ void PQclearMultiResults(PGresult **results, int resultCount)
     free(results);
     return;
 }
+
+/*
+ * PQsendSavepointCommand
+ *     Queue a Savepoint protocol packet (message type 0x35) into the
+ *     output buffer. Does NOT flush or change asyncStatus.
+ *
+ *     command = 0x01: create savepoint
+ *     command = 0x02: rollback to savepoint
+ *
+ *     Wire format: ['5'][int32 length=5][byte command]
+ *
+ * Returns 1 on success, 0 on failure.
+ */
+static int PQsendSavepointCommand(PGconn* conn, char command)
+{
+    if (conn == NULL)
+        return 0;
+
+    if (conn->status != CONNECTION_OK) {
+        printfPQExpBuffer(&conn->errorMessage, libpq_gettext("no connection to the server\n"));
+        return 0;
+    }
+
+    if (pqPutMsgStart('5', false, conn) < 0 ||
+        pqPutc(command, conn) < 0 ||
+        pqPutMsgEnd(conn) < 0)
+        return 0;
+
+    return 1;
+}
+
+int PQsendSavepoint(PGconn* conn)
+{
+    return PQsendSavepointCommand(conn, (char)0x01);
+}
+
+int PQsendRollbackToSavepoint(PGconn* conn)
+{
+    return PQsendSavepointCommand(conn, (char)0x02);
+}
+
+/*
+ * PQsendProtocolSync
+ *     Send a Sync protocol packet ('S', 0x53), flush, and set
+ *     asyncStatus to PGASYNC_BUSY so the caller can use PQgetResult()
+ *     to consume the server response (ReadyForQuery).
+ *
+ * Returns 1 on success, 0 on failure.
+ */
+int PQsendProtocolSync(PGconn* conn)
+{
+    if (conn == NULL)
+        return 0;
+
+    if (conn->status != CONNECTION_OK) {
+        printfPQExpBuffer(&conn->errorMessage, libpq_gettext("no connection to the server\n"));
+        return 0;
+    }
+
+    if (pqPutMsgStart('S', false, conn) < 0 ||
+        pqPutMsgEnd(conn) < 0)
+        return 0;
+
+    if (pqFlush(conn) < 0)
+        return 0;
+
+    conn->asyncStatus = PGASYNC_BUSY;
+    return 1;
+}

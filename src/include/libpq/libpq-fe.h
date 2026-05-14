@@ -435,6 +435,11 @@ extern int PQsendQueryPrepared(PGconn* conn, const char* stmtName, int nParams, 
 extern int PQsendQueryPreparedBatch(PGconn* conn, const char* stmtName, int nParams, int nBatchCount,
     const char* const* paramValues, const int* paramLengths, const int* paramFormats, int resultFormat);
 
+/* Autosave protocol packet functions (autosave=internal) */
+extern int PQsendSavepoint(PGconn* conn);
+extern int PQsendRollbackToSavepoint(PGconn* conn);
+extern int PQsendProtocolSync(PGconn* conn);
+
 extern int PQsetSingleRowMode(PGconn* conn);
 extern PGresult* PQgetResult(PGconn* conn);
 

@@ -171,3 +171,6 @@ PQsendQueryParamsBatch    168
 lo_lseek64                169
 lo_tell64                 170
 lo_truncate64             171
+PQsendSavepoint           172
+PQsendRollbackToSavepoint 173
+PQsendProtocolSync        174
