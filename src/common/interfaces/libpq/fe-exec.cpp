@@ -4601,15 +4601,24 @@ static int PQsendSavepointCommand(PGconn* conn, char command)
     if (conn == NULL)
         return 0;
 
+    resetPQExpBuffer(&conn->errorMessage);
+
     if (conn->status != CONNECTION_OK) {
         printfPQExpBuffer(&conn->errorMessage, libpq_gettext("no connection to the server\n"));
         return 0;
     }
 
+    if (conn->asyncStatus != PGASYNC_IDLE) {
+        printfPQExpBuffer(&conn->errorMessage, libpq_gettext("another command is already in progress\n"));
+        return 0;
+    }
+
     if (pqPutMsgStart('5', false, conn) < 0 ||
         pqPutc(command, conn) < 0 ||
-        pqPutMsgEnd(conn) < 0)
+        pqPutMsgEnd(conn) < 0) {
+        pqHandleSendFailure(conn);
         return 0;
+    }
 
     return 1;
 }
@@ -4637,17 +4646,28 @@ int PQsendProtocolSync(PGconn* conn)
     if (conn == NULL)
         return 0;
 
+    resetPQExpBuffer(&conn->errorMessage);
+
     if (conn->status != CONNECTION_OK) {
         printfPQExpBuffer(&conn->errorMessage, libpq_gettext("no connection to the server\n"));
         return 0;
     }
 
-    if (pqPutMsgStart('S', false, conn) < 0 ||
-        pqPutMsgEnd(conn) < 0)
+    if (conn->asyncStatus != PGASYNC_IDLE) {
+        printfPQExpBuffer(&conn->errorMessage, libpq_gettext("another command is already in progress\n"));
         return 0;
+    }
 
-    if (pqFlush(conn) < 0)
+    if (pqPutMsgStart('S', false, conn) < 0 ||
+        pqPutMsgEnd(conn) < 0) {
+        pqHandleSendFailure(conn);
         return 0;
+    }
+
+    if (pqFlush(conn) < 0) {
+        pqHandleSendFailure(conn);
+        return 0;
+    }
 
     conn->asyncStatus = PGASYNC_BUSY;
     return 1;
